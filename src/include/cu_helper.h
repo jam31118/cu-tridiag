@@ -19,5 +19,12 @@ int _cu_error_msg(cudaError_t cu_status, const char *file_name, int line_number)
 }
 #define cu_error_msg(cu_status) _cu_error_msg(cu_status, __FILE__, __LINE__)
 
+void _cu_handle_error(cudaError_t cu_status, const char *file_name, int line_number) {
+  if (cu_status != cudaSuccess) {
+    _cu_error_msg_format(cu_status, file_name, line_number, cudaGetErrorString(cu_status));
+    exit(cu_status);
+  }
+}
+#define cu_err_check(cu_status) _cu_handle_error(cu_status, __FILE__, __LINE__)
 
 #endif // _CU_HELPER_H_
