@@ -32,7 +32,6 @@ __global__ void tridiag_forward(int m, T *d_ld, T *d_d, T *d_ud, T *d_x_aug, T *
   //// NOTES END
   T *d_x = d_x_aug + 1, *d_b = d_b_aug + 1;
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
-//  int i = tid + 1; // this may be combined to the line above
   while (tid < m) {
     d_b[tid] = d_ld[tid] * d_x[tid-1] + d_d[tid] * d_x[tid] + d_ud[tid] * d_x[tid+1];
     tid += blockDim.x * gridDim.x;
@@ -41,6 +40,8 @@ __global__ void tridiag_forward(int m, T *d_ld, T *d_d, T *d_ud, T *d_x_aug, T *
 
 //// wrapper for dealing with multiple tridiag at once should be implemented ..
 //// may be the routine for single tridiag should be defined as __device__ not __global__
+//// - but, like `cusparse<t>gtsv2StridedBatch()`, all tridiagonal can be combined into a single 1D array.
+//// - I can make use of `diag_unitary_stack` arrays, and wavefunction array, which is also an single 1D array.
 
 
 void swap_pointers(m_t **p1, m_t **p2) {
@@ -76,8 +77,10 @@ int main(int argc, char *argv[]) {
 //  long num_of_aug_arrays = 4;
   m_t
     *tmp=NULL, 
-    *ph[num_of_aug_arrays], *h_x_aug,
-    *pd[num_of_aug_arrays];
+    *ph[num_of_aug_arrays], *h_x_aug=NULL, *h_x=NULL, // pointers to host arrays
+    *pd[num_of_aug_arrays], *d_x_aug=NULL, *d_x=NULL, *d_b=NULL, *d_b_aug=NULL; // pointers to device arrays
+
+  //// Allocate memory to host arrays
   for (i=0; i<num_of_aug_arrays; ++i) {
     tmp = (m_t *) malloc(size_of_arr);
     if (tmp != NULL) { ph[i] = tmp; }
@@ -85,20 +88,19 @@ int main(int argc, char *argv[]) {
   }
   h_x_aug = (m_t *) malloc(size_of_augmented_arr);
   if (h_x_aug == NULL) {fprintf(stderr,"[ERROR] during `malloc()`"); return -1;}
-//  ph[i_x] = h_x_aug + 1;
+  h_x=h_x_aug+1; 
   
   //// Define handles for host arrays
-  m_t 
-    *h_ld=ph[i_ld], *h_d=ph[i_d], *h_ud=ph[i_ud], *h_x=h_x_aug+1; 
-// *h_x=ph[i_x]; // (this is false) ph[i_x] is an augmented vector with length of `N+2`
+//  m_t *h_ld=ph[i_ld], *h_d=ph[i_d], *h_ud=ph[i_ud]; 
+//  m_t *h_x=h_x_aug+1; 
 
-  //// Fill out tridiagonals and `b` vector (associated with `h_x` array)
+  //// Fill out tridiagonals and `x` vector (associated with `h_x` array)
   for (i=0; i<N; ++i) {
-    h_ld[i] = 1.0; h_d[i] = 1.0; h_ud[i] = 0.0;
+    ph[i_ld][i] = 1.0; ph[i_d][i] = 1.0; ph[i_ud][i] = 0.0;
     h_x[i] = 0.1 * i;
   }
-  h_ld[0] = 0.0; h_ud[N-1] = 0.0;
-  h_x[-1] = 0.0; h_x[N] = 0.0;
+  ph[i_ld][0] = 0.0; ph[i_ud][N-1] = 0.0; // requirement of tridiagonal solver routine from `cuSPARSE`
+  h_x_aug[0] = 0.0; h_x_aug[N+1] = 0.0; // fill both ends with zeros
 
   //// Print arrays before the calculation
   std::cout << "h_x (before): ";
@@ -106,26 +108,26 @@ int main(int argc, char *argv[]) {
     std::cout << h_x[i] << " ";
   } std::cout << std::endl;
 
-  ph[i_ld] = h_ld; ph[i_d] = h_d;
-  ph[i_ud] = h_ud; // ph[i_x] = h_x;
+//  ph[i_ld] = h_ld; ph[i_d] = h_d;
+//  ph[i_ud] = h_ud; // ph[i_x] = h_x;
   
   //// Allocate device memory and copy contents from the host
   for (i=0; i<num_of_aug_arrays; ++i) {
     cu_err_check( cudaMalloc(&pd[i], N*size_of_m_t) );
     cu_err_check ( cudaMemcpy(pd[i], ph[i], N*size_of_m_t, cudaMemcpyHostToDevice) );
   }
-  m_t *d_x;
-  m_t *d_x_aug = NULL;
+//  m_t *d_x;
+//  m_t *d_x_aug = NULL;
   cu_err_check( cudaMalloc(&d_x_aug, size_of_augmented_arr) );
   cu_err_check( cudaMemcpy(d_x_aug, h_x_aug, size_of_augmented_arr, cudaMemcpyHostToDevice) );
 
-  m_t *d_b_aug = NULL;
+//  m_t *d_b_aug = NULL;
   cu_err_check( cudaMalloc(&d_b_aug, size_of_augmented_arr) );
   cu_err_check( cudaMemset(d_b_aug, 0, size_of_augmented_arr) ); // [OPTIMIZE] it is enough to set just d_b_aug[0] and d_b_aug[N-1] to zero.
 
 //  pd[i_x] = d_x_aug + 1;
 
-  m_t *d_b = NULL;
+//  m_t *d_b = NULL;
 //  cu_err_check( cudaMalloc(&d_b, size_of_arr) );
   d_b = d_b_aug + 1;
 
@@ -141,14 +143,13 @@ int main(int argc, char *argv[]) {
   m_t *h_b = (m_t *) malloc(size_of_arr);
 
   //// Configure time iteration
-  long num_of_time_steps = 2;
+  long num_of_time_steps = 3;
   long time_index, time_index_start = 0;
   long time_index_max=time_index_start+num_of_time_steps;
 
   //// Start time iteration
   for (time_index=time_index_start; time_index<time_index_max; ++time_index) {
     //// Run forward tridiagonal multiplication on device
-    // Execution
     cudaEventRecord(start, 0);
     tridiag_forward<<<num_of_blocks, num_of_thread_per_block>>>(N, pd[i_ld], pd[i_d], pd[i_ud], d_x_aug, d_b_aug);
     cudaEventRecord(stop, 0);
@@ -203,7 +204,6 @@ int main(int argc, char *argv[]) {
   
 
   //// Print result
-//  h_x = ph[i_x];
   std::cout << "h_x (after): ";
   for (i=0; i<N; ++i) {
     std::cout << h_x[i] << " ";
@@ -224,9 +224,7 @@ int main(int argc, char *argv[]) {
   }
   free(h_x_aug);
   cudaFree(d_x_aug);
-
-//  cudaFree(d_b);
-  cudaFree(d_b_aug);
+  cudaFree(d_b_aug); // [NOTE] No need for `d_b` since it is just a pointer, pointing to the first element of the array pointed by `d_b_aug`
 
   //// Reset device
   cudaDeviceReset();
