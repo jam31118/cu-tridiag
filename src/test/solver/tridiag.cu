@@ -31,10 +31,6 @@ int main(int argc, char *argv[]) {
   long N = 11;
   size_t size_of_m_t = sizeof(m_t);
   long num_of_aug_arrays = 4;
-//  long 
-//    num_of_aug_arrays = 4, 
-//    num_of_aug_arrays = 4;
-//  long total_num_of_arr = num_of_aug_arrays + num_of_aug_arrays;
   m_t *tmp, *ph[num_of_aug_arrays], *pd[num_of_aug_arrays];
   for (i=0; i<num_of_aug_arrays; ++i) {
     tmp = NULL;
@@ -77,31 +73,21 @@ int main(int argc, char *argv[]) {
   //// Allocate device memory and copy contents from the host
   for (i=0; i<num_of_aug_arrays; ++i) {
     cu_status = cudaMalloc(&pd[i], N*size_of_m_t);
-    if (cu_status != cudaSuccess) { fprintf(stderr, "[ERROR] during `cudaMalloc()` with error: `%s`\n", cudaGetErrorString(cu_status)); return cu_status; }
-//    pd[0] = NULL;
+    if (cu_status != cudaSuccess) { return cu_error_msg(cu_status); }
     cu_status = cudaMemcpy(pd[i], ph[i], N*size_of_m_t, cudaMemcpyHostToDevice);
-    if (cu_status != cudaSuccess) { 
-      return cu_error_msg(cu_status);
-//      fprintf(stderr, "[ERROR] during `cudaMemcpy()` at file `%s` line `%d`\n", __FILE__, __LINE__); return cu_status; 
-    }
+    if (cu_status != cudaSuccess) { return cu_error_msg(cu_status); }
   }
-
-  //// Define handles for device arrays
-//  m_t 
-//    *d_ld=pd[0], *d_d=pd[1], 
-//    *d_ud=pd[2], *d_x=pd[3];
 
   //// Run tridiagonal solve routine
   cusparse_status = cusparseDgtsv(handle, N, 1, pd[i_ld], pd[i_d], pd[i_ud], pd[i_x], N);
   if (cusparse_status != CUSPARSE_STATUS_SUCCESS) {
-    fprintf(stderr, "[ERROR] during `cusparseDgtsv()` with error: `%s`\n", _cusparseGetErrorEnum(cusparse_status));
-    return cusparse_status;
+    return cusparse_error_msg(cusparse_status);
   }
 
   //// Copy data from device to host
   for (i=0; i<num_of_aug_arrays; ++i) {
     cu_status = cudaMemcpy(ph[i], pd[i], N*size_of_m_t, cudaMemcpyDeviceToHost);
-    if (cu_status != cudaSuccess) { fprintf(stderr, "[ERROR] during `cudaMemcpy()`\n"); return cu_status; }
+    if (cu_status != cudaSuccess) { return cu_error_msg(cu_status); }
   }
 
   //// Print result
