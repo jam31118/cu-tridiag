@@ -10,6 +10,7 @@
 //// Home-made helper CUDA headers
 #include "cusparse_helper.h"
 #include "cu_helper.h"
+#include "tridiag_kernel.h"
 
 //// extra home-made headers
 #include "helper.h"
@@ -27,31 +28,9 @@ enum index_name {
   i_d, // an index for diagonal array
 };
 
-template <typename T>
-__global__ void tridiag_forward(int m, T *d_ld, T *d_d, T *d_ud, T *d_x_aug, T *d_b_aug) {
-  //// NOTES
-  // `d_x_aug` and `d_b_aug` are both device pointers to arrays augmented by 2, thus with length `m+2`
-  //// NOTES END
-  T *d_x = d_x_aug + 1, *d_b = d_b_aug + 1;
-  int tid = threadIdx.x + blockIdx.x * blockDim.x;
-  while (tid < m) {
-    d_b[tid] = d_ld[tid] * d_x[tid-1] + d_d[tid] * d_x[tid] + d_ud[tid] * d_x[tid+1];
-    tid += blockDim.x * gridDim.x;
-  }
-}
-
-//// wrapper for dealing with multiple tridiag at once should be implemented ..
-//// may be the routine for single tridiag should be defined as __device__ not __global__
-//// - but, like `cusparse<t>gtsv2StridedBatch()`, all tridiagonal can be combined into a single 1D array.
-//// - I can make use of `diag_unitary_stack` arrays, and wavefunction array, which is also an single 1D array.
-
 
 //// main program start
 int main(int argc, char *argv[]) {
-  
-  //// Create `cuSPARSE` context
-  cusparseHandle_t handle;
-  cusparseCreate(&handle);
   
   //// Initialize status variables
   cusparseStatus_t cusparse_status = CUSPARSE_STATUS_SUCCESS;
@@ -105,13 +84,27 @@ int main(int argc, char *argv[]) {
     h_x[i] = 0.1 * i;
   }
   ph[i_ld][0] = 0.0; ph[i_ud][N-1] = 0.0; // requirement of tridiagonal solver routine from `cuSPARSE`
-  h_x_aug[0] = 0.0; h_x_aug[N+1] = 0.0; // fill both ends with zeros
+  h_x_aug[0] = 0.0; h_x_aug[N+1] = 0.0; // fill both ends with zeros (but it is not mandatory since `d_ld[0]==d_ud[N-1]==0`)
 
   //// Print arrays before the calculation
   std::cout << "h_x (before): ";
   for (i=0; i<N; ++i) {
     std::cout << h_x[i] << " ";
   } std::cout << std::endl;
+
+
+
+  //// Arguments list
+  // m_t *h_tridiags_forward[3], *h_tridiags_backward[3];
+  // : in order of `h_ld`, `h_d`, `h_ud`
+  // int N;
+  // m_t *h_x_aug;
+  // int time_index_start, time_index_max;
+  // dim3 blocks, grids;
+
+  //// Create `cuSPARSE` context
+  cusparseHandle_t handle;
+  cusparseCreate(&handle);
 
   //// Allocate device memory and copy contents from the host
   for (i=0; i<num_of_aug_arrays; ++i) {
@@ -143,7 +136,7 @@ int main(int argc, char *argv[]) {
   //// Start time iteration
   for (time_index=time_index_start; time_index<time_index_max; ++time_index) {
     //// Run forward tridiagonal multiplication on device
-    cudaEventRecord(start, 0);
+    cudaEventRecord(start, 0); // [TO-ERASE] and all timing-related
     tridiag_forward<<<num_of_blocks, num_of_thread_per_block>>>(N, pd[i_ld], pd[i_d], pd[i_ud], d_x_aug, d_b_aug);
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
