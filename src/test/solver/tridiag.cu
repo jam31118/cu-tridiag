@@ -12,7 +12,7 @@
 #include "cu_helper.h"
 
 
-#define MAX(x,y) ((x>y)?x:y)
+#define MIN(x,y) ((x<y)?x:y)
 
 
 //// Define my type
@@ -47,8 +47,15 @@ int main(int argc, char *argv[]) {
   cusparseStatus_t cusparse_status = CUSPARSE_STATUS_SUCCESS;
   cudaError_t cu_status = cudaSuccess;	
 
+  cudaEvent_t start, stop;
+  cu_status = cudaEventCreate(&start);
+  if (cu_status != cudaSuccess) { return cu_error_msg(cu_status); }
+  cu_status = cudaEventCreate(&stop);
+  if (cu_status != cudaSuccess) { return cu_error_msg(cu_status); }
+
+
   long i;
-  long N = 11;
+  long N = 101;
   size_t size_of_m_t = sizeof(m_t), size_of_arr;
   long num_of_aug_arrays = 4;
   m_t *tmp, *ph[num_of_aug_arrays], *pd[num_of_aug_arrays];
@@ -56,7 +63,6 @@ int main(int argc, char *argv[]) {
     size_of_arr = N*size_of_m_t;
     if (i==i_x) { 
       continue; 
-      //size_of_arr += 2*size_of_m_t; 
     }
     tmp = NULL;
     tmp = (m_t *) malloc(size_of_arr);
@@ -92,10 +98,10 @@ int main(int argc, char *argv[]) {
 //  free(buf);
 
   //// Print arrays before the calculation
-  std::cout << "h_x (before): ";
-  for (i=0; i<N; ++i) {
-    std::cout << h_x[i] << " ";
-  } std::cout << std::endl;
+//  std::cout << "h_x (before): ";
+//  for (i=0; i<N; ++i) {
+//    std::cout << h_x[i] << " ";
+//  } std::cout << std::endl;
 
   ph[i_ld] = h_ld; ph[i_d] = h_d;
   ph[i_ud] = h_ud; ph[i_x] = h_x;
@@ -123,22 +129,35 @@ int main(int argc, char *argv[]) {
   //// Run forward tridiagonal multiplication on device
   int num_of_thread_per_block = 128;
   int num_of_blocks_max = 32;
-  int num_of_blocks = MAX((N+num_of_thread_per_block-1)/num_of_thread_per_block, num_of_blocks_max);
+  int num_of_blocks = MIN((N+num_of_thread_per_block-1)/num_of_thread_per_block, num_of_blocks_max);
+  cudaEventRecord(start, 0);
   tridiag_forward<<<num_of_blocks, num_of_thread_per_block>>>(N, pd[i_ld], pd[i_d], pd[i_ud], d_x_aug, d_b);
+  cudaEventRecord(stop, 0);
+  cudaEventSynchronize(stop);
+  float elapsed_time_forward, elapsed_time_backward;
+  cudaEventElapsedTime(&elapsed_time_forward, start, stop);
+  // logging
+  fprintf(stdout, "[ LOG ] Launched kernel `tridiag_forward` with `%d` blocks with `%d` threads each\n",
+      num_of_blocks, num_of_thread_per_block);
 
   //// Print arrays after forward before backward
   // copy the intermediate data
   m_t *h_b = (m_t *) malloc(size_of_arr);
   cu_status = cudaMemcpy(h_b, d_b, size_of_arr, cudaMemcpyDeviceToHost);
   if (cu_status != cudaSuccess) { return cu_error_msg(cu_status); }
+  free(h_b);
   // print
-  std::cout << "h_b (between): ";
-  for (i=0; i<N; ++i) {
-    std::cout << h_b[i] << " ";
-  } std::cout << std::endl;
+//  std::cout << "h_b (between): ";
+//  for (i=0; i<N; ++i) {
+//    std::cout << h_b[i] << " ";
+//  } std::cout << std::endl;
 
   //// Run tridiagonal solve routine
+  cudaEventRecord(start, 0);
   cusparse_status = cusparseDgtsv(handle, N, 1, pd[i_ld], pd[i_d], pd[i_ud], d_b, N);
+  cudaEventRecord(stop, 0);
+  cudaEventSynchronize(stop);
+  cudaEventElapsedTime(&elapsed_time_backward, start, stop);
 //  cusparse_status = cusparseDgtsv(handle, N, 1, pd[i_ld], pd[i_d], pd[i_ud], pd[i_x], N);
   if (cusparse_status != CUSPARSE_STATUS_SUCCESS) {
     return cusparse_error_msg(cusparse_status);
@@ -155,11 +174,21 @@ int main(int argc, char *argv[]) {
   
 
   //// Print result
-  h_x = ph[i_x];
-  std::cout << "h_x (after): ";
-  for (i=0; i<N; ++i) {
-    std::cout << h_x[i] << " ";
-  } std::cout << std::endl;
+//  h_x = ph[i_x];
+//  std::cout << "h_x (after): ";
+//  for (i=0; i<N; ++i) {
+//    std::cout << h_x[i] << " ";
+//  } std::cout << std::endl;
+
+  //// Event log
+  fprintf(stdout, "[ LOG ] elapsed_time_forward: %.3f ms\n",elapsed_time_forward);
+  fprintf(stdout, "[ LOG ] elapsed_time_backward: %.3f ms\n",elapsed_time_backward);
+
+  //// Destroy events
+  cu_status = cudaEventDestroy(start);
+  if (cu_status != cudaSuccess) { return cu_error_msg(cu_status); }
+  cu_status = cudaEventDestroy(stop);
+  if (cu_status != cudaSuccess) { return cu_error_msg(cu_status); }
   
   //// Free allocated memory
   for (i=0; i<num_of_aug_arrays; ++i) {
