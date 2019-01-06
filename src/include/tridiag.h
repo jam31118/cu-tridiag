@@ -15,7 +15,8 @@ template <typename m_t>
 int tridiag_forward_backward (
     int N, m_t *h_tridiags_forward[], m_t *h_tridiags_backward[],
     m_t *h_x_aug, int time_index_start, int time_index_max,
-    dim3 block_dim3, dim3 grid_dim3 )
+    dim3 block_dim3, dim3 grid_dim3,
+    int batch_count = 1, int batch_stride = -1)
 {
   //// Arguments list
   // m_t *h_tridiags_forward[3], *h_tridiags_backward[3];
@@ -24,6 +25,10 @@ int tridiag_forward_backward (
   // m_t *h_x_aug;
   // int time_index_start, time_index_max;
   // dim3 blocks, grids;
+  
+  //// Check argument(s)
+  if (batch_stride < 0) { batch_stride = N; } // fall back to default behavior
+  
 
   //// Ready for using `cuSPARSE`
   // Create `cuSPARSE` context
@@ -69,12 +74,15 @@ int tridiag_forward_backward (
   // Get bufer size
   size_t buf_size_for_gtsv2;
 //  cusparse_status = cusparseDgtsv2_bufferSizeExt(
-  cusparse_status = cusparseZgtsv2_bufferSizeExt(
-      handle, N, 1, 
+//  cusparse_status = cusparseZgtsv2_bufferSizeExt(
+  cusparse_status = cusparseZgtsv2StridedBatch_bufferSizeExt(
+      handle, N, 
       (cuDoubleComplex *) d_tridiags_forward[i_ud], 
       (cuDoubleComplex *) d_tridiags_forward[i_d], 
       (cuDoubleComplex *) d_tridiags_forward[i_ud], 
-      (cuDoubleComplex *) d_b, N, &buf_size_for_gtsv2 );
+      (cuDoubleComplex *) d_b, 
+      batch_count, batch_stride, 
+      &buf_size_for_gtsv2 );
   if (cusparse_status != CUSPARSE_STATUS_SUCCESS) {
     return cusparse_error_msg(cusparse_status);
   }
@@ -109,12 +117,15 @@ int tridiag_forward_backward (
   
     //// Run tridiagonal solve routine
 //    cusparse_status = cusparseDgtsv2(
-    cusparse_status = cusparseZgtsv2(
-        handle, N, 1, 
+//    cusparse_status = cusparseZgtsv2(
+    cusparse_status = cusparseZgtsv2StridedBatch (
+        handle, N, 
         (cuDoubleComplex *) d_tridiags_backward[i_ld], 
         (cuDoubleComplex *) d_tridiags_backward[i_d], 
         (cuDoubleComplex *) d_tridiags_backward[i_ud], 
-        (cuDoubleComplex *) d_b, N, d_buf_for_gtsv2 ); 
+        (cuDoubleComplex *) d_b, 
+        batch_count, batch_stride, 
+        d_buf_for_gtsv2 ); 
     // [NOTE] 
     // through this tridiagonal solve routine, 
     // the `d_b`, which was originally an array for the right-hand side
