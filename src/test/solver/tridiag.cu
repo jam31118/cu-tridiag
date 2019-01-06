@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstdio>
+#include <complex>
 
 //// CUDA headers (standard)
 #include "cuda_runtime.h"
@@ -19,7 +20,7 @@
 #define MIN(x,y) ((x<y)?x:y)
 
 //// Define my type
-typedef double m_t;
+typedef std::complex<double> m_t;
 
 
 //// main program start

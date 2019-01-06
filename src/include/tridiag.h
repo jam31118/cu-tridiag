@@ -68,12 +68,13 @@ int tridiag_forward_backward (
   //// Allocate buffer for `cusparse<T>gtsv2()` routine
   // Get bufer size
   size_t buf_size_for_gtsv2;
-  cusparse_status = cusparseDgtsv2_bufferSizeExt(
+//  cusparse_status = cusparseDgtsv2_bufferSizeExt(
+  cusparse_status = cusparseZgtsv2_bufferSizeExt(
       handle, N, 1, 
-      d_tridiags_forward[i_ud], 
-      d_tridiags_forward[i_d], 
-      d_tridiags_forward[i_ud], 
-      d_b, N, &buf_size_for_gtsv2 );
+      (cuDoubleComplex *) d_tridiags_forward[i_ud], 
+      (cuDoubleComplex *) d_tridiags_forward[i_d], 
+      (cuDoubleComplex *) d_tridiags_forward[i_ud], 
+      (cuDoubleComplex *) d_b, N, &buf_size_for_gtsv2 );
   if (cusparse_status != CUSPARSE_STATUS_SUCCESS) {
     return cusparse_error_msg(cusparse_status);
   }
@@ -89,12 +90,13 @@ int tridiag_forward_backward (
   int time_index;
   for (time_index=time_index_start; time_index<time_index_max; ++time_index) {
     //// Run forward tridiagonal multiplication on device
-    tridiag_forward<<<grid_dim3, block_dim3>>>(
+    tridiag_forward_complex<<<grid_dim3, block_dim3>>>(
         N, 
-        d_tridiags_forward[i_ld], 
-        d_tridiags_forward[i_d], 
-        d_tridiags_forward[i_ud], 
-        d_x_aug, d_b_aug );
+        (cuDoubleComplex *)d_tridiags_forward[i_ld], 
+        (cuDoubleComplex *)d_tridiags_forward[i_d], 
+        (cuDoubleComplex *)d_tridiags_forward[i_ud], 
+        (cuDoubleComplex *)d_x_aug, 
+        (cuDoubleComplex *)d_b_aug );
   
     //// Print arrays after forward before backward
     // copy the intermediate data
@@ -106,12 +108,13 @@ int tridiag_forward_backward (
     } std::cout << std::endl;
   
     //// Run tridiagonal solve routine
-    cusparse_status = cusparseDgtsv2(
+//    cusparse_status = cusparseDgtsv2(
+    cusparse_status = cusparseZgtsv2(
         handle, N, 1, 
-        d_tridiags_backward[i_ld], 
-        d_tridiags_backward[i_d], 
-        d_tridiags_backward[i_ud], 
-        d_b, N, d_buf_for_gtsv2 ); 
+        (cuDoubleComplex *) d_tridiags_backward[i_ld], 
+        (cuDoubleComplex *) d_tridiags_backward[i_d], 
+        (cuDoubleComplex *) d_tridiags_backward[i_ud], 
+        (cuDoubleComplex *) d_b, N, d_buf_for_gtsv2 ); 
     // [NOTE] 
     // through this tridiagonal solve routine, 
     // the `d_b`, which was originally an array for the right-hand side
