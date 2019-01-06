@@ -49,9 +49,11 @@ int tridiag_forward_backward (
 
   //// Define some useful variables
   size_t size_of_element = sizeof(m_t);
-  size_t size_of_arr_in_bytes = N * size_of_element;
-  size_t size_of_aug_arr_in_bytes = (N + 2) * size_of_element;
+  int num_of_elements_in_arr = N * batch_count;
+  size_t size_of_arr_in_bytes = num_of_elements_in_arr * size_of_element;
+  size_t size_of_aug_arr_in_bytes = (num_of_elements_in_arr + 2) * size_of_element;
 
+  int batch_index, first_index_at_this_batch, upper_bound_of_index_at_this_batch;
   //// Allocate device memory and copy contents from the host
   for (i=0; i<num_of_arrays_in_tridiags; ++i) {
     // `d_tridaigs_forward`
@@ -99,7 +101,7 @@ int tridiag_forward_backward (
   for (time_index=time_index_start; time_index<time_index_max; ++time_index) {
     //// Run forward tridiagonal multiplication on device
     tridiag_forward_complex<<<grid_dim3, block_dim3>>>(
-        N, 
+        num_of_elements_in_arr, 
         (cuDoubleComplex *)d_tridiags_forward[i_ld], 
         (cuDoubleComplex *)d_tridiags_forward[i_d], 
         (cuDoubleComplex *)d_tridiags_forward[i_ud], 
@@ -110,10 +112,17 @@ int tridiag_forward_backward (
     // copy the intermediate data
     cu_err_check( cudaMemcpy(h_b, d_b, size_of_arr_in_bytes, cudaMemcpyDeviceToHost) );
     // print
-    std::cout << "h_b (between): ";
-    for (i=0; i<N; ++i) {
-      std::cout << h_b[i] << " ";
+    std::cout << "h_b (between): \n";
+    for (batch_index=0; batch_index<batch_count; ++batch_index) {
+      first_index_at_this_batch = batch_index * N;
+      upper_bound_of_index_at_this_batch = (batch_index+1) * N;
+      for (i=first_index_at_this_batch; i<upper_bound_of_index_at_this_batch; ++i) {
+        std::cout << h_b[i] << " ";
+      } std::cout << std::endl;
     } std::cout << std::endl;
+//    for (i=0; i<N; ++i) {
+//      std::cout << h_b[i] << " ";
+//    } std::cout << std::endl;
   
     //// Run tridiagonal solve routine
 //    cusparse_status = cusparseDgtsv2(

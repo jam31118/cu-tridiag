@@ -29,6 +29,8 @@ int main(int argc, char *argv[]) {
 
   //// Configuration
   long N = 11;
+  int batch_count = 2;
+  int batch_stride = N;
 
   // forward tridiagonal multiplication configuration
   int num_of_thread_per_block = 128;
@@ -43,7 +45,7 @@ int main(int argc, char *argv[]) {
   long time_index_start = 0;
   long time_index_max=time_index_start+num_of_time_steps;
 
-
+  
 
   //// logging for configuration
   fprintf(stdout, "[ LOG ] Launching kernel `tridiag_forward` with `%d` blocks with `%d` threads each\n",
@@ -53,11 +55,12 @@ int main(int argc, char *argv[]) {
 
   //// Variable declaration with initialization if needed
   // some useful variables
-  long i;
+  int i;
+  int num_of_elements_in_arr = N * batch_count;
   size_t
     size_of_m_t = sizeof(m_t),
-    size_of_arr = N*size_of_m_t,
-    size_of_augmented_arr = (N+2) * size_of_m_t;
+    size_of_arr = num_of_elements_in_arr * size_of_m_t,
+    size_of_augmented_arr = (num_of_elements_in_arr + 2) * size_of_m_t;
   long num_of_arrays_in_tridiags = 3;
 
   // pointers to host arrays
@@ -88,40 +91,74 @@ int main(int argc, char *argv[]) {
   
 
   //// Fill out tridiagonals and `x` vector (associated with `h_x` array)
-  for (i=0; i<N; ++i) {
-
-    // for forward tridiagonals
-    h_tridiags_forward[i_ld][i] = 1.0; 
-    h_tridiags_forward[i_d][i] = 1.0; 
-    h_tridiags_forward[i_ud][i] = 0.0;
-
-    // for backward tridiagonals
-    h_tridiags_backward[i_ld][i] = 0.0; 
-    h_tridiags_backward[i_d][i] = 1.0; 
-    h_tridiags_backward[i_ud][i] = 0.0;
-
-    // for the target vector, associated by `h_x`
-    h_x[i] = 0.1 * i;
+  int batch_index, first_index_at_this_batch, upper_bound_of_index_at_this_batch;
+  for (batch_index=0; batch_index<batch_count; ++batch_index) {
+    first_index_at_this_batch = batch_index * N;
+    upper_bound_of_index_at_this_batch = (batch_index+1) * N;
+    for (i=first_index_at_this_batch; i<upper_bound_of_index_at_this_batch; ++i) {
+  
+      // for forward tridiagonals
+      h_tridiags_forward[i_ld][i] = 1.0; 
+      h_tridiags_forward[i_d][i] = 1.0; 
+      h_tridiags_forward[i_ud][i] = 0.0;
+  
+      // for backward tridiagonals
+      h_tridiags_backward[i_ld][i] = 0.0; 
+      h_tridiags_backward[i_d][i] = 1.0; 
+      h_tridiags_backward[i_ud][i] = 0.0;
+  
+      // for the target vector, associated by `h_x`
+      h_x[i] = 0.1 * (i - first_index_at_this_batch);
+    }
+    // requirement of tridiagonal home-made forward and `cuSPARSE`backward routine
+    h_tridiags_forward[i_ld][first_index_at_this_batch] = 0.0; 
+    h_tridiags_forward[i_ud][upper_bound_of_index_at_this_batch-1] = 0.0; 
+    h_tridiags_backward[i_ld][first_index_at_this_batch] = 0.0; 
+    h_tridiags_backward[i_ud][upper_bound_of_index_at_this_batch-1] = 0.0; 
   }
-
-  // requirement of tridiagonal home-made forward and `cuSPARSE`backward routine
-  h_tridiags_forward[i_ld][0] = 0.0; 
-  h_tridiags_forward[i_ud][N-1] = 0.0; 
-  h_tridiags_backward[i_ld][0] = 0.0; 
-  h_tridiags_backward[i_ud][N-1] = 0.0; 
 
   // fill both ends with zeros for augmented arrays 
   // .. (but it is not mandatory since `d_ld[0]==d_ud[N-1]==0`)
-  h_x_aug[0] = 0.0; h_x_aug[N+1] = 0.0; 
+  h_x_aug[0] = 0.0; h_x_aug[num_of_elements_in_arr+1] = 0.0; 
 
   
   
   //// Print arrays before the calculation
-  std::cout << "h_x (before): ";
-  for (i=0; i<N; ++i) {
-    std::cout << h_x[i] << " ";
+  std::cout << "h_x (before): \n";
+  for (batch_index=0; batch_index<batch_count; ++batch_index) {
+    first_index_at_this_batch = batch_index * N;
+    upper_bound_of_index_at_this_batch = (batch_index+1) * N;
+    for (i=first_index_at_this_batch; i<upper_bound_of_index_at_this_batch; ++i) {
+      std::cout << h_x[i] << " ";
+    } std::cout << std::endl;
   } std::cout << std::endl;
 
+//  std::cout << "h_tridiags_forward[i_ld] (before): \n";
+//  for (batch_index=0; batch_index<batch_count; ++batch_index) {
+//    first_index_at_this_batch = batch_index * N;
+//    upper_bound_of_index_at_this_batch = (batch_index+1) * N;
+//    for (i=first_index_at_this_batch; i<upper_bound_of_index_at_this_batch; ++i) {
+//      std::cout << h_tridiags_forward[i_ld][i] << " ";
+//    } std::cout << std::endl;
+//  } std::cout << std::endl;
+//
+//  std::cout << "h_tridiags_forward[i_d] (before): \n";
+//  for (batch_index=0; batch_index<batch_count; ++batch_index) {
+//    first_index_at_this_batch = batch_index * N;
+//    upper_bound_of_index_at_this_batch = (batch_index+1) * N;
+//    for (i=first_index_at_this_batch; i<upper_bound_of_index_at_this_batch; ++i) {
+//      std::cout << h_tridiags_forward[i_d][i] << " ";
+//    } std::cout << std::endl;
+//  } std::cout << std::endl;
+//
+//  std::cout << "h_tridiags_forward[i_ud] (before): \n";
+//  for (batch_index=0; batch_index<batch_count; ++batch_index) {
+//    first_index_at_this_batch = batch_index * N;
+//    upper_bound_of_index_at_this_batch = (batch_index+1) * N;
+//    for (i=first_index_at_this_batch; i<upper_bound_of_index_at_this_batch; ++i) {
+//      std::cout << h_tridiags_forward[i_ud][i] << " ";
+//    } std::cout << std::endl;
+//  } std::cout << std::endl;
 
 
   //// Run repeated forward-backward routine
@@ -129,7 +166,8 @@ int main(int argc, char *argv[]) {
   return_status = tridiag_forward_backward (
     N, h_tridiags_forward, h_tridiags_backward, h_x_aug, 
     time_index_start, time_index_max,
-    block_dim3, grid_dim3 );
+    block_dim3, grid_dim3, 
+    batch_count=batch_count, batch_stride=batch_stride);
   if (return_status != 0) { 
     fprintf(stderr, "[ERROR] Abnormal exit from `tridiag_forward_backward()`\n"); 
     return return_status; 
@@ -138,9 +176,13 @@ int main(int argc, char *argv[]) {
 
 
   //// Print arrays after the calculation
-  std::cout << "h_x (after): ";
-  for (i=0; i<N; ++i) {
-    std::cout << h_x[i] << " ";
+  std::cout << "h_x (after): \n";
+  for (batch_index=0; batch_index<batch_count; ++batch_index) {
+    first_index_at_this_batch = batch_index * N;
+    upper_bound_of_index_at_this_batch = (batch_index+1) * N;
+    for (i=first_index_at_this_batch; i<upper_bound_of_index_at_this_batch; ++i) {
+      std::cout << h_x[i] << " ";
+    } std::cout << std::endl;
   } std::cout << std::endl;
 
 
