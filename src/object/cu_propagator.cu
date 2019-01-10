@@ -63,7 +63,7 @@ int tridiag_forward_backward (
   size_t size_of_arr_in_bytes = num_of_elements_in_arr * size_of_element;
   size_t size_of_aug_arr_in_bytes = (num_of_elements_in_arr + 2) * size_of_element;
 
-  int batch_index, first_index_at_this_batch, upper_bound_of_index_at_this_batch;
+//  int batch_index, first_index_at_this_batch, upper_bound_of_index_at_this_batch;
   //// Allocate device memory and copy contents from the host
   for (i=0; i<num_of_arrays_in_tridiags; ++i) {
     // `d_tridaigs_forward`
@@ -102,10 +102,15 @@ int tridiag_forward_backward (
   cu_err_check( cudaMalloc(&d_buf_for_gtsv2, buf_size_for_gtsv2) );
 
   //// Allocate for intermediate result
-  std::complex<double> *h_b = (std::complex<double> *) malloc(size_of_arr_in_bytes);
+//  std::complex<double> *h_b = (std::complex<double> *) malloc(size_of_arr_in_bytes);
 
   //// Start time iteration
   int time_index;
+
+  int num_of_time_steps = time_index_max - time_index_start;
+  int num_of_steps_to_print_progress, num_of_steps_done_so_far;
+  int rank = 0;
+
   for (time_index=time_index_start; time_index<time_index_max; ++time_index) {
     //// Run forward tridiagonal multiplication on device
     tridiag_forward_complex<<<grid_dim3, block_dim3>>>(
@@ -116,19 +121,21 @@ int tridiag_forward_backward (
         (cuDoubleComplex *)d_x_aug, 
         (cuDoubleComplex *)d_b_aug );
   
+
     //// Print arrays after forward before backward
-    // copy the intermediate data
-    cu_err_check( cudaMemcpy(h_b, d_b, size_of_arr_in_bytes, cudaMemcpyDeviceToHost) );
-    // print
-    std::cout << "h_b (between): \n";
-    for (batch_index=0; batch_index<batch_count; ++batch_index) {
-      first_index_at_this_batch = batch_index * N;
-      upper_bound_of_index_at_this_batch = (batch_index+1) * N;
-      for (i=first_index_at_this_batch; i<upper_bound_of_index_at_this_batch; ++i) {
-        std::cout << h_b[i] << " ";
-      } std::cout << std::endl;
-    } std::cout << std::endl;
+//    // copy the intermediate data
+//    cu_err_check( cudaMemcpy(h_b, d_b, size_of_arr_in_bytes, cudaMemcpyDeviceToHost) );
+//    // print
+//    std::cout << "h_b (between): \n";
+//    for (batch_index=0; batch_index<batch_count; ++batch_index) {
+//      first_index_at_this_batch = batch_index * N;
+//      upper_bound_of_index_at_this_batch = (batch_index+1) * N;
+//      for (i=first_index_at_this_batch; i<upper_bound_of_index_at_this_batch; ++i) {
+//        std::cout << h_b[i] << " ";
+//      } std::cout << std::endl;
+//    } std::cout << std::endl;
   
+
     //// Run tridiagonal solve routine
     cusparse_status = cusparseZgtsv2StridedBatch (
         handle, N, 
@@ -151,10 +158,23 @@ int tridiag_forward_backward (
     //// Swap arrays
     swap_pointers(&d_x_aug, &d_b_aug);
     d_x = d_x_aug + 1; d_b = d_b_aug + 1;
+
+
+    //// Logging
+    num_of_steps_to_print_progress = 200;
+    if (((time_index + 1) % num_of_steps_to_print_progress) == 0) {
+      num_of_steps_done_so_far = time_index - time_index_start + 1;
+      if (rank == 0) {
+        fprintf(stdout, "[@rank=%d][ LOG ] num_of_steps_done_so_far = %d / %d\n", 
+            rank, num_of_steps_done_so_far, num_of_time_steps);
+      }
+    }
+
+
   }
 
   //// Free intermediate result array;
-  free(h_b);
+//  free(h_b);
   //// Free buf for `gtsv2()` routine
   cudaFree(d_buf_for_gtsv2);
 
@@ -173,6 +193,7 @@ int tridiag_forward_backward (
 
   //// Reset device
   cudaDeviceReset();
+
 
   //// Destroy context
   cusparse_status = cusparseDestroy(handle);
