@@ -5,8 +5,10 @@
 #include <complex>
 
 // extra home-made headers
-#include "tridiag-common.hh"
 #include "cu_propagator.h"
+
+// from matrix library
+#include "tridiag-common.hh"
 
 
 // Define macro function
