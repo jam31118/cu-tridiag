@@ -1,6 +1,10 @@
 #ifndef _TRIDIAG_KERNEL_H_
 #define _TRIDIAG_KERNEL_H_
 
+//// CUDA headers (standard)
+#include "cuda_runtime.h"
+#include "cusparse_v2.h"
+
 template <typename T>
 __global__ void tridiag_forward(int m, T *d_ld, T *d_d, T *d_ud, T *d_x_aug, T *d_b_aug) {
   //// NOTES

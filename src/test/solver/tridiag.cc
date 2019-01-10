@@ -4,20 +4,48 @@
 #include <cstdio>
 #include <complex>
 
+//#include "cu_propagator.h"
+
 //// CUDA headers (standard)
-#include "cuda_runtime.h"
-#include "cusparse_v2.h"
+//#include "cuda_runtime.h"
+//#include "cusparse_v2.h"
 
 //// Home-made helper CUDA headers
-#include "cusparse_helper.h"
-#include "cu_helper.h"
-#include "tridiag_kernel.h"
-#include "tridiag.h"
+//#include "cusparse_helper.h"
+//#include "cu_helper.h"
+//#include "tridiag_kernel.h"
+//#include "tridiag.h"
+
+
+int tridiag_forward_backward (
+    int N, std::complex<double> *h_tridiags_forward[], std::complex<double> *h_tridiags_backward[],
+    std::complex<double> *h_x_aug, int time_index_start, int time_index_max,
+    int block_dim3_in[], int grid_dim3_in[],
+    int batch_count = 1, int batch_stride = -1);
 
 //// extra home-made headers
 
 //// Define macro function
 #define MIN(x,y) ((x<y)?x:y)
+
+#include "tridiag-common.hh"
+//enum index_name { 
+//  i_ld, // an index for lower offdiagonal array
+//  i_ud, // an index for upper offdiagonal array
+//  i_d, // an index for diagonal array
+//};
+
+
+//template <typename m_t>
+//int tridiag_forward_backward (
+//    int N, m_t *h_tridiags_forward[], m_t *h_tridiags_backward[],
+//    m_t *h_x_aug, int time_index_start, int time_index_max,
+//    dim3 block_dim3, dim3 grid_dim3,
+//    int batch_count = 1, int batch_stride = -1);
+
+//#include "vector_types.h"
+//
+
 
 //// Define my type
 typedef std::complex<double> m_t;
@@ -38,7 +66,10 @@ int main(int argc, char *argv[]) {
   int num_of_blocks = MIN((N+num_of_thread_per_block-1)/num_of_thread_per_block, num_of_blocks_max);
 
   // Define grid and block dimension
-  dim3 grid_dim3(num_of_blocks), block_dim3(num_of_thread_per_block);
+//  dim3 grid_dim3(num_of_blocks), block_dim3(num_of_thread_per_block);
+  int block_dim3_in[3] = { num_of_thread_per_block, 1, 1 }, 
+      grid_dim3_in[3] = { num_of_blocks, 1, 1 };
+  
 
   // time iteration configuration
   long num_of_time_steps = 3;
@@ -166,7 +197,7 @@ int main(int argc, char *argv[]) {
   return_status = tridiag_forward_backward (
     N, h_tridiags_forward, h_tridiags_backward, h_x_aug, 
     time_index_start, time_index_max,
-    block_dim3, grid_dim3, 
+    block_dim3_in, grid_dim3_in, 
     batch_count=batch_count, batch_stride=batch_stride);
   if (return_status != 0) { 
     fprintf(stderr, "[ERROR] Abnormal exit from `tridiag_forward_backward()`\n"); 
