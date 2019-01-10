@@ -1,15 +1,10 @@
-
-CUDA_COMPILER = nvcc
-
-CUDA_HOME = /usr/local/cuda
-CUDA_LIB_PATH = $(CUDA_HOME)/lib64
+include ../var.mk
 
 CUDA_LIB_PATH_FLAGS = -L$(CUDA_LIB_PATH)
 CUDA_LIB_FLAGS = -lcudart -lcusparse
 CUDA_INCLUDE_FLAGS = -I$(CUDA_HOME)/include
 
-INCLUDE_FLAGS = -I../include -I../../dep/matrix/include
-
+INCLUDE_FLAGS = -I../../include -I$(MATRIX_HOME)/include
 
 LIB_INSTALL_PATH = ../../lib
 
