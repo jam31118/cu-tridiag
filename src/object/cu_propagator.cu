@@ -13,36 +13,15 @@
 #include "cusparse_helper.h"
 #include "tridiag_kernel.h"
 
-//#include "cu_propagator.h"
-
+#include "cu_propagator.h"
 
 #include "tridiag-common.hh"
-
-////// Define mapping from index_name to integer as indices
-//enum index_name { 
-//  i_ld, // an index for lower offdiagonal array
-//  i_ud, // an index for upper offdiagonal array
-//  i_d, // an index for diagonal array
-//};
-
-
-
-//template <> int tridiag_forward_backward< std::complex<double> > (
-//    int N, std::complex<double> *h_tridiags_forward[], std::complex<double> *h_tridiags_backward[],
-//    std::complex<double> *h_x_aug, int time_index_start, int time_index_max,
-//    dim3 block_dim3, dim3 grid_dim3,
-//    int batch_count, int batch_stride);
 
 int tridiag_forward_backward (
     int N, std::complex<double> *h_tridiags_forward[], std::complex<double> *h_tridiags_backward[],
     std::complex<double> *h_x_aug, int time_index_start, int time_index_max,
     int block_dim3_in[], int grid_dim3_in[],
-    int batch_count = 1, int batch_stride = -1)
-//int tridiag_forward_backward (
-//    int N, std::complex<double> *h_tridiags_forward[], std::complex<double> *h_tridiags_backward[],
-//    std::complex<double> *h_x_aug, int time_index_start, int time_index_max,
-//    dim3 block_dim3, dim3 grid_dim3,
-//    int batch_count = 1, int batch_stride = -1)
+    int batch_count, int batch_stride)
 {
   //// Arguments list
   // std::complex<double> *h_tridiags_forward[3], *h_tridiags_backward[3];
@@ -106,8 +85,6 @@ int tridiag_forward_backward (
   //// Allocate buffer for `cusparse<T>gtsv2()` routine
   // Get bufer size
   size_t buf_size_for_gtsv2;
-//  cusparse_status = cusparseDgtsv2_bufferSizeExt(
-//  cusparse_status = cusparseZgtsv2_bufferSizeExt(
   cusparse_status = cusparseZgtsv2StridedBatch_bufferSizeExt(
       handle, N, 
       (cuDoubleComplex *) d_tridiags_forward[i_ud], 
@@ -151,13 +128,8 @@ int tridiag_forward_backward (
         std::cout << h_b[i] << " ";
       } std::cout << std::endl;
     } std::cout << std::endl;
-//    for (i=0; i<N; ++i) {
-//      std::cout << h_b[i] << " ";
-//    } std::cout << std::endl;
   
     //// Run tridiagonal solve routine
-//    cusparse_status = cusparseDgtsv2(
-//    cusparse_status = cusparseZgtsv2(
     cusparse_status = cusparseZgtsv2StridedBatch (
         handle, N, 
         (cuDoubleComplex *) d_tridiags_backward[i_ld], 

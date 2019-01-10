@@ -1,54 +1,20 @@
-//// C/C++ standard headers
+// C/C++ standard headers
 #include <iostream>
 #include <cstdlib>
 #include <cstdio>
 #include <complex>
 
-//#include "cu_propagator.h"
-
-//// CUDA headers (standard)
-//#include "cuda_runtime.h"
-//#include "cusparse_v2.h"
-
-//// Home-made helper CUDA headers
-//#include "cusparse_helper.h"
-//#include "cu_helper.h"
-//#include "tridiag_kernel.h"
-//#include "tridiag.h"
+// extra home-made headers
+#include "tridiag-common.hh"
+#include "cu_propagator.h"
 
 
-int tridiag_forward_backward (
-    int N, std::complex<double> *h_tridiags_forward[], std::complex<double> *h_tridiags_backward[],
-    std::complex<double> *h_x_aug, int time_index_start, int time_index_max,
-    int block_dim3_in[], int grid_dim3_in[],
-    int batch_count = 1, int batch_stride = -1);
-
-//// extra home-made headers
-
-//// Define macro function
+// Define macro function
 #define MIN(x,y) ((x<y)?x:y)
 
-#include "tridiag-common.hh"
-//enum index_name { 
-//  i_ld, // an index for lower offdiagonal array
-//  i_ud, // an index for upper offdiagonal array
-//  i_d, // an index for diagonal array
-//};
-
-
-//template <typename m_t>
-//int tridiag_forward_backward (
-//    int N, m_t *h_tridiags_forward[], m_t *h_tridiags_backward[],
-//    m_t *h_x_aug, int time_index_start, int time_index_max,
-//    dim3 block_dim3, dim3 grid_dim3,
-//    int batch_count = 1, int batch_stride = -1);
-
-//#include "vector_types.h"
-//
-
-
-//// Define my type
+// Define my type
 typedef std::complex<double> m_t;
+
 
 
 //// main program start
@@ -66,23 +32,19 @@ int main(int argc, char *argv[]) {
   int num_of_blocks = MIN((N+num_of_thread_per_block-1)/num_of_thread_per_block, num_of_blocks_max);
 
   // Define grid and block dimension
-//  dim3 grid_dim3(num_of_blocks), block_dim3(num_of_thread_per_block);
   int block_dim3_in[3] = { num_of_thread_per_block, 1, 1 }, 
       grid_dim3_in[3] = { num_of_blocks, 1, 1 };
-  
 
   // time iteration configuration
   long num_of_time_steps = 3;
   long time_index_start = 0;
   long time_index_max=time_index_start+num_of_time_steps;
-
   
 
   //// logging for configuration
   fprintf(stdout, "[ LOG ] Launching kernel `tridiag_forward` with `%d` blocks with `%d` threads each\n",
       num_of_blocks, num_of_thread_per_block);
   
-
 
   //// Variable declaration with initialization if needed
   // some useful variables
