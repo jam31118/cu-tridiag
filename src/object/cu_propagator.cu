@@ -17,6 +17,43 @@
 
 #include "tridiag-common.hh"
 
+
+__global__ void extract_tsurff_psi_and_dpsidr (
+    int num_of_wf_lm, int index_at_R, int N_rho,
+    cuDoubleComplex *d_psi_R_arr_at_t, 
+    cuDoubleComplex *d_dpsi_drho_R_arr_at_t, 
+    cuDoubleComplex *d_wf_lm_stack, 
+    const double two_over_3delta_rho, 
+    const double one_over_12delta_rho ) 
+{
+  
+  cuDoubleComplex *d_wf_lm = NULL;
+  double temp_real, temp_imag;
+  int tid = threadIdx.x + blockIdx.x * blockDim.x; // same as lm index
+
+  while (tid < num_of_wf_lm) {
+    // Determine address of `wf_lm` among the stack of `wf_lm`
+    d_wf_lm = d_wf_lm_stack + tid * N_rho;
+
+    d_psi_R_arr_at_t[tid] = d_wf_lm[index_at_R];
+    
+    temp_real = 
+      two_over_3delta_rho * (d_wf_lm[index_at_R+1].x - d_wf_lm[index_at_R-1].x) 
+      - one_over_12delta_rho * (d_wf_lm[index_at_R+2].x - d_wf_lm[index_at_R-2].x);
+    temp_imag = 
+      two_over_3delta_rho * (d_wf_lm[index_at_R+1].y - d_wf_lm[index_at_R-1].y) 
+      - one_over_12delta_rho * (d_wf_lm[index_at_R+2].y - d_wf_lm[index_at_R-2].y);
+    d_dpsi_drho_R_arr_at_t[tid] = make_cuDoubleComplex(temp_real, temp_imag);
+      //= cuCadd( cuCmul(two_over_3delta_rho,cuCadd(d_wf_lm[index_at_R+1], - d_wf_lm[index_at_R-1])), - cuCmul(one_over_12delta_rho, cuCadd(d_wf_lm[index_at_R+2], - d_wf_lm[index_at_R-2])) );
+
+    tid += blockDim.x * gridDim.x;
+  }
+
+}
+
+
+
+
 int cu_crank_nicolson_with_tsurff (
     int index_at_R, double delta_rho, int time_index_start, int num_of_time_steps,
     std::complex<double> *h_x_aug, int batch_count,
@@ -83,6 +120,9 @@ int cu_crank_nicolson_with_tsurff (
   cu_err_check( cudaMemset(d_b_aug, 0, size_of_aug_arr_in_bytes) ); // [OPTIMIZE] it is enough to set just d_b_aug[0] and d_b_aug[N-1] to zero.
   // `d_b`
   d_b = d_b_aug + 1;
+  d_x = d_x_aug + 1;
+
+
 
   //// Allocate buffer for `cusparse<T>gtsv2()` routine
   // Get bufer size
@@ -103,17 +143,53 @@ int cu_crank_nicolson_with_tsurff (
   void *d_buf_for_gtsv2 = NULL;
   cu_err_check( cudaMalloc(&d_buf_for_gtsv2, buf_size_for_gtsv2) );
 
+
+
+  // tsurff quantity evaluation related variables
+  const int num_of_wf_lm = batch_count;
+  const double one_over_12delta_rho = 1.0/(12.0*delta_rho);
+  const double two_over_3delta_rho = 2.0/(3.0*delta_rho);
+
+  
+  //// Allocate buffer for tsurff quantity evaluation
+  std::complex<double> *d_psi_R_arr, *d_dpsi_drho_R_arr, *d_wf_lm_stack;
+  std::complex<double> *d_psi_R_arr_at_t, *d_dpsi_drho_R_arr_at_t;
+  int tsurff_buffer_length = num_of_wf_lm * num_of_time_steps;
+  size_t tsurff_buffer_size = tsurff_buffer_length * sizeof(std::complex<double>);
+  cu_err_check( cudaMalloc(&d_psi_R_arr, tsurff_buffer_size) );
+  cu_err_check( cudaMalloc(&d_dpsi_drho_R_arr, tsurff_buffer_size) );
+
+
+
   //// Allocate for intermediate result
 //  std::complex<double> *h_b = (std::complex<double> *) malloc(size_of_arr_in_bytes);
 
+
   //// Start time iteration
-  int time_index;
+  int time_index, time_index_from_zero;
 //  int num_of_time_steps = time_index_max - time_index_start;
   int time_index_max = time_index_start + num_of_time_steps;
   int num_of_steps_done_so_far;
 //  int rank = 0;
-
   for (time_index=time_index_start; time_index<time_index_max; ++time_index) {
+
+    time_index_from_zero = time_index - time_index_start;
+
+    //// tsurff quantity evaluation
+    d_psi_R_arr_at_t = d_psi_R_arr + time_index_from_zero * num_of_wf_lm;
+    d_dpsi_drho_R_arr_at_t = d_dpsi_drho_R_arr + time_index_from_zero * num_of_wf_lm;
+    d_wf_lm_stack = d_x;
+    
+    extract_tsurff_psi_and_dpsidr<<<grid_dim3, block_dim3>>>(
+      num_of_wf_lm, index_at_R, batch_stride, 
+      (cuDoubleComplex *) d_psi_R_arr_at_t, 
+      (cuDoubleComplex *) d_dpsi_drho_R_arr_at_t, 
+      (cuDoubleComplex *) d_wf_lm_stack, 
+      two_over_3delta_rho, 
+      one_over_12delta_rho );
+
+
+
     //// Run forward tridiagonal multiplication on device
     tridiag_forward_complex<<<grid_dim3, block_dim3>>>(
         num_of_elements_in_arr, 
@@ -184,6 +260,9 @@ int cu_crank_nicolson_with_tsurff (
   // [NOTE] Since the arrays associated to the pointers in `pd` are only tridiagonals of this linear system's matrix, they don't require memory copy.
   std::complex<double> *h_x = h_x_aug + 1; // temporary variable just for pointing the second element of `h_x_aug` array
   cu_err_check( cudaMemcpy(h_x, d_x, size_of_arr_in_bytes, cudaMemcpyDeviceToHost) );
+  // copy tsurff quantities
+  cu_err_check( cudaMemcpy(psi_R_arr, d_psi_R_arr, tsurff_buffer_size, cudaMemcpyDeviceToHost) );
+  cu_err_check( cudaMemcpy(dpsi_drho_R_arr, d_dpsi_drho_R_arr, tsurff_buffer_size, cudaMemcpyDeviceToHost) );
 
   //// Free allocated memory
   for (i=0; i<num_of_arrays_in_tridiags; ++i) {
@@ -192,6 +271,9 @@ int cu_crank_nicolson_with_tsurff (
   }
   cudaFree(d_x_aug);
   cudaFree(d_b_aug); // [NOTE] No need for `d_b` since it is just a pointer, pointing to the first element of the array pointed by `d_b_aug`
+  cudaFree(d_psi_R_arr);
+  cudaFree(d_dpsi_drho_R_arr);
+
 
   //// Reset device
   cudaDeviceReset();
