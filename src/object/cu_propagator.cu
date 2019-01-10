@@ -17,11 +17,13 @@
 
 #include "tridiag-common.hh"
 
-int tridiag_forward_backward (
-    int N, std::complex<double> *h_tridiags_forward[], std::complex<double> *h_tridiags_backward[],
-    std::complex<double> *h_x_aug, int time_index_start, int time_index_max,
-    int block_dim3_in[], int grid_dim3_in[],
-    int batch_count, int batch_stride)
+int cu_crank_nicolson_with_tsurff (
+    int index_at_R, double delta_rho, int time_index_start, int num_of_time_steps,
+    std::complex<double> *h_x_aug, int batch_count,
+    std::complex<double> *psi_R_arr, std::complex<double> *dpsi_drho_R_arr, int N, 
+    std::complex<double> *h_tridiags_forward[], std::complex<double> *h_tridiags_backward[],
+    int num_of_steps_to_print_progress, int rank,
+    int block_dim3_in[], int grid_dim3_in[], int batch_stride)
 {
   //// Arguments list
   // std::complex<double> *h_tridiags_forward[3], *h_tridiags_backward[3];
@@ -106,10 +108,10 @@ int tridiag_forward_backward (
 
   //// Start time iteration
   int time_index;
-
-  int num_of_time_steps = time_index_max - time_index_start;
-  int num_of_steps_to_print_progress, num_of_steps_done_so_far;
-  int rank = 0;
+//  int num_of_time_steps = time_index_max - time_index_start;
+  int time_index_max = time_index_start + num_of_time_steps;
+  int num_of_steps_done_so_far;
+//  int rank = 0;
 
   for (time_index=time_index_start; time_index<time_index_max; ++time_index) {
     //// Run forward tridiagonal multiplication on device
