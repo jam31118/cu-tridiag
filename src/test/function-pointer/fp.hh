@@ -13,8 +13,9 @@ std::complex<double> eval_tem(T *real, T *imag, p_comb_t<T> p_comb) {
   return p_comb(real, imag);
 }
 
-
-std::complex<double> comb_double(double *real, double *imag);
+extern "C" {
+extern std::complex<double> comb_double(double *real, double *imag);
+}
 
 std::complex<double> comb_int(int *real, int *imag);
 
